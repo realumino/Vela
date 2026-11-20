@@ -43,6 +43,9 @@ export const WARP_MASQUE_PORT = 443;
  * rendered config, and the preset route warns before the operator saves one.
  */
 export const WARP_MASQUE_MIN_XRAY = "26.10.21";
+/** WHAT: the edge families a WARP outbound can dial. */
+export type WarpEdge = "ipv6" | "ipv4";
+
 /** WHAT: resolvers used inside the tunnel; WARP routes 1.1.1.1 natively. */
 const WARP_RESOLVERS = [
   "1.1.1.1",
@@ -58,8 +61,8 @@ export type WarpDevice = { id: string; token: string };
 export type WarpEnrollment = {
   /** The WARP edge's P-256 public key (PEM or base64 SPKI), pinned by Xray. */
   peer_public_key: string;
-  /** The edge host the tunnel dials. */
-  endpoint: string;
+  /** The edge hosts the registration offered, per family. */
+  endpoints: { v4: string | null; v6: string | null };
   /** The addresses WARP assigned to the device, as /32 and /128. */
   addresses: [string, string];
 };
@@ -283,20 +286,22 @@ export async function enrollMasque(
     typeof endpointField === "object" && endpointField !== null
       ? (endpointField as Record<string, unknown>)
       : {};
-  // WHY v6 first: a v6-only or CGNAT host can only reach the v6 edge, and it
-  // is the path Cloudflare prefers. The v4 fallback keeps a registration
-  // working if the API ever omits `v6`; the port it reports is meaningless
-  // (see endpointHost), so only the host survives.
-  const endpoint = endpointHost(peerEndpoint["v6"]) ?? endpointHost(peerEndpoint["v4"]);
-  if (endpoint === null) {
+  // WHAT: both hosts the registration offers. The port it reports is
+  // meaningless (see endpointHost), so only the hosts survive; which family
+  // to dial belongs to the outbound, not to the enrollment.
+  const endpoints = {
+    v4: endpointHost(peerEndpoint["v4"]),
+    v6: endpointHost(peerEndpoint["v6"]),
+  };
+  if (endpoints.v4 === null && endpoints.v6 === null) {
     throw new Error("warp: enrollment response has no peer endpoint");
   }
   return {
     peer_public_key: stringField(peer, "public_key"),
-    endpoint,
-    // WHY both families: only the edge we dial moves to v6. Dropping the v4
-    // address would take the tunnel's IPv4 source away and break every IPv4
-    // destination it exits to.
+    endpoints,
+    // WHY both families regardless of the edge: only the dial path moves.
+    // Dropping either address would take that family's source away and break
+    // every destination it exits to.
     addresses: [
       `${stringField(config, "interface.addresses.v4")}/32`,
       `${stringField(config, "interface.addresses.v6")}/128`,
@@ -330,16 +335,33 @@ export async function createWarpMasque(
  * WHY serverName is the consumer edge name: Xray pins the edge certificate
  * to `warp.publicKey`, so the name is cosmetic — but using the real one
  * keeps the handshake indistinguishable from the official client's.
+ *
+ * WHY the edge is a parameter: the dial family and the interface's source
+ * addresses are independent. A tunnel dialled over IPv4 still carries IPv6
+ * packets, so selecting IPv4 narrows only the path to the edge, never the
+ * destinations the exit can reach.
  */
 export function warpMasqueOutbound(
   tag: string,
   registration: WarpMasque,
+  edge: WarpEdge = "ipv6",
 ): Record<string, unknown> {
+  // WHY IPv6 falls back to IPv4: a registration that omits the v6 host still
+  // yields a working tunnel, which is the behavior before the choice existed.
+  // IPv4 has no fallback: dialling the other family would contradict an
+  // explicit choice, so the build fails instead.
+  const endpoint =
+    edge === "ipv4"
+      ? registration.endpoints.v4
+      : registration.endpoints.v6 ?? registration.endpoints.v4;
+  if (endpoint === null) {
+    throw new Error(`warp: the registration offers no ${edge} edge`);
+  }
   return {
     tag,
     protocol: "masque",
     settings: {
-      address: registration.endpoint,
+      address: endpoint,
       port: WARP_MASQUE_PORT,
       remoteDNS: [...WARP_RESOLVERS],
     },

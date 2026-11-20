@@ -123,8 +123,9 @@ describe("enrollMasque", () => {
     expect(enrollment).toEqual({
       peer_public_key:
         "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEIw==\n-----END PUBLIC KEY-----\n",
-      endpoint: "2606:4700:103::2",
-      // Both interface addresses survive: only the dialled edge is v6.
+      endpoints: { v4: "162.159.198.2", v6: "2606:4700:103::2" },
+      // Both interface addresses survive; the edge choice belongs to the
+      // outbound, not to the enrollment.
       addresses: ["172.16.0.2/32", "2606:4700:110:8a78:72d9:6e7f:da52:294f/128"],
     });
   });
@@ -148,7 +149,7 @@ describe("enrollMasque", () => {
         }),
     ]);
     const enrollment = await enrollMasque(fetcher, { id: "d", token: "t" }, keys);
-    expect(enrollment.endpoint).toBe("162.159.198.2");
+    expect(enrollment.endpoints).toEqual({ v4: "162.159.198.2", v6: null });
   });
 
   it("fails when the response lacks the fields a tunnel needs", async () => {
@@ -267,5 +268,61 @@ describe("warpMasqueOutbound", () => {
         },
       },
     });
+  });
+
+  it("dials the IPv4 edge without dropping the IPv6 interface address", async () => {
+    const { fetcher } = stub([deviceResponse, enrollmentResponse]);
+    const registration = await createWarpMasque(fetcher, new Date());
+    const outbound = warpMasqueOutbound("warp", registration, "ipv4");
+
+    expect(outbound).toMatchObject({
+      settings: { address: "162.159.198.2" },
+      streamSettings: {
+        masqueSettings: {
+          warp: {
+            address: [
+              "172.16.0.2/32",
+              "2606:4700:110:8a78:72d9:6e7f:da52:294f/128",
+            ],
+          },
+        },
+      },
+    });
+  });
+
+  it("falls back to the IPv4 edge when the registration offers no IPv6 one", async () => {
+    const { fetcher } = stub([
+      deviceResponse,
+      () =>
+        Response.json({
+          config: {
+            peers: [{ public_key: "pub", endpoint: { v4: "162.159.198.2:0" } }],
+            interface: { addresses: { v4: "172.16.0.2", v6: "2606:4700:110::1" } },
+          },
+        }),
+    ]);
+    const registration = await createWarpMasque(fetcher, new Date());
+
+    expect(warpMasqueOutbound("warp", registration)).toMatchObject({
+      settings: { address: "162.159.198.2" },
+    });
+  });
+
+  it("refuses an IPv4 edge the registration does not offer", async () => {
+    const { fetcher } = stub([
+      deviceResponse,
+      () =>
+        Response.json({
+          config: {
+            peers: [{ public_key: "pub", endpoint: { v6: "[2606:4700:103::2]:0" } }],
+            interface: { addresses: { v4: "172.16.0.2", v6: "2606:4700:110::1" } },
+          },
+        }),
+    ]);
+    const registration = await createWarpMasque(fetcher, new Date());
+
+    expect(() => warpMasqueOutbound("warp", registration, "ipv4")).toThrow(
+      /no ipv4 edge/,
+    );
   });
 });

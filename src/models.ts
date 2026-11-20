@@ -603,18 +603,28 @@ export const DnsZonesOut = z.object({
 });
 export type DnsZonesOut = z.infer<typeof DnsZonesOut>;
 
-/** WHAT: response for GET /api/admin/nodes/{node_id}/presets. */
+/** WHAT: one option of a preset field the dialog renders as a select. */
+export const PresetFieldChoiceOut = z.object({
+  value: z.string(),
+  label: z.string(),
+});
+export type PresetFieldChoiceOut = z.infer<typeof PresetFieldChoiceOut>;
+
 /**
  * WHAT: one preset input.
  *
  * WHY there is no placeholder: an example value is a value the operator can
  * mistake for a default. The dialog starts from `defaults` and explains the
  * rule in `hint`; nothing that looks saveable is ever shown as a hint.
+ *
+ * WHY `choices` is optional: a plain text field has no closed set, and the
+ * catalog response omits the key instead of sending an empty array.
  */
 export const PresetFieldOut = z.object({
   name: z.string(),
   label: z.string(),
   hint: z.string().default(""),
+  choices: z.array(PresetFieldChoiceOut).optional(),
 });
 export type PresetFieldOut = z.infer<typeof PresetFieldOut>;
 

@@ -199,11 +199,18 @@ export interface InboundLinkIn {
   overrides: Record<string, string | number>;
 }
 
+/** One option of a preset field the dialog renders as a select. */
+export interface PresetFieldChoiceOut {
+  value: string;
+  label: string;
+}
+
 /** One input a preset dialog collects. */
 export interface PresetFieldOut {
   name: string;
   label: string;
   hint: string;
+  choices?: PresetFieldChoiceOut[];
 }
 
 /** One preset as the config page describes it. */

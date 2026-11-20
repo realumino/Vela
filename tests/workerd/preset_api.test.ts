@@ -24,7 +24,12 @@ type PresetListOut = {
     id: string;
     label: string;
     summary: string;
-    fields: Array<{ name: string; label: string; hint: string }>;
+    fields: Array<{
+      name: string;
+      label: string;
+      hint: string;
+      choices?: Array<{ value: string; label: string }>;
+    }>;
     defaults: Record<string, string>;
   }>;
 };
@@ -70,6 +75,13 @@ describe("the preset catalog", () => {
       "socket",
       "shortId",
       "flow",
+    ]);
+    const warp = catalog.presets[1];
+    expect(warp.fields.map((field) => field.name)).toEqual(["tag", "edge"]);
+    expect(warp.defaults["edge"]).toBe("ipv6");
+    expect(warp.fields[1].choices).toEqual([
+      { value: "ipv6", label: "IPv6" },
+      { value: "ipv4", label: "IPv4" },
     ]);
 
     // WHY: an example value in a field is a value the operator can mistake
@@ -230,6 +242,49 @@ describe("the preset catalog", () => {
         },
       },
     });
+  });
+
+  it("dials the IPv4 WARP edge when the preset asks for it", async () => {
+    await reportXrayVersion("26.11.9");
+    const response = await planeJson(
+      "POST",
+      `/api/admin/nodes/${node}/presets/warp`,
+      { config: null, options: { tag: "warp", edge: "ipv4" } },
+    );
+    expect(response.status, await response.clone().text()).toBe(200);
+    const result = await body<PresetBuildOut>(response);
+    expect(result.warnings).toEqual([]);
+    const warp = (result.config["outbounds"] as Array<Record<string, unknown>>)[1] as {
+      settings: Record<string, unknown>;
+      streamSettings: Record<string, unknown>;
+    };
+    expect(warp.settings["address"]).toBe("162.159.198.2");
+    expect(warp.streamSettings).toMatchObject({
+      masqueSettings: {
+        warp: {
+          address: [
+            "172.16.0.2/32",
+            "2606:4700:110:8a78:72d9:6e7f:da52:294f/128",
+          ],
+        },
+      },
+    });
+  });
+
+  it("warns about an unknown WARP edge and dials IPv6", async () => {
+    await reportXrayVersion("26.11.9");
+    const response = await planeJson(
+      "POST",
+      `/api/admin/nodes/${node}/presets/warp`,
+      { config: null, options: { tag: "warp", edge: "bogus" } },
+    );
+    expect(response.status, await response.clone().text()).toBe(200);
+    const result = await body<PresetBuildOut>(response);
+    expect(result.warnings).toEqual(["unknown WARP edge 'bogus'; using ipv6"]);
+    const warp = (result.config["outbounds"] as Array<Record<string, unknown>>)[1] as {
+      settings: Record<string, unknown>;
+    };
+    expect(warp.settings["address"]).toBe("2606:4700:103::2");
   });
 
   it("warns when the node core predates MASQUE WARP support", async () => {

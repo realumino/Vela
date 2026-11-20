@@ -61,11 +61,13 @@ presses Save config.
   a reported version is older, because the apply's config test would
   otherwise reject the outbound and roll back. A node that reports no version
   gets no warning: unknown is not the same as too old. `h3` only: the tunnel
-  is QUIC, so a node whose uplink blocks UDP/443 cannot use it. The edge is
-  dialled over IPv6 when the registration offers it (`v6` first, `v4` only as
-  a fallback), so a CGNAT or v6-only host still reaches it; the interface
-  keeps both address families, because dropping the v4 one would leave every
-  IPv4 destination without a source address.
+  is QUIC, so a node whose uplink blocks UDP/443 cannot use it. **Edge
+  address family** selects the dial path: IPv6 (the default) dials `v6` when
+  the registration offers it and falls back to `v4`; IPv4 dials `v4` and
+  fails the build if the registration offers none. Only the edge moves: the
+  interface keeps both assigned address families, so an IPv4 edge still
+  carries IPv6 destinations, and a node with no working IPv6 egress must
+  select IPv4.
 - **Geo block routing** — appends `geoip:<code>` and/or `geosite:<category>`
   rules that send matches to `BLOCK` (or another chosen tag). Two rules,
   because Xray ANDs the matchers inside one rule (`ip` + `domain` in one rule

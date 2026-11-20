@@ -18,7 +18,7 @@ import ErrorNote from "./ErrorNote";
 import Field from "./Field";
 import Icon from "./icons";
 import Modal from "./Modal";
-import { inputClass, primaryButton, secondaryButton } from "./styles";
+import { inputClass, primaryButton, secondaryButton, selectClass } from "./styles";
 import type { PresetBuildOut, PresetOut } from "../types";
 
 export default function PresetDialog({
@@ -96,13 +96,29 @@ export default function PresetDialog({
       <div className="cf-formrow">
         {preset.fields.map((field) => (
           <Field key={field.name} label={field.label} hint={field.hint}>
-            <input
-              className={inputClass}
-              value={values[field.name] ?? ""}
-              onChange={(event) =>
-                setValues({ ...values, [field.name]: event.target.value })
-              }
-            />
+            {field.choices && field.choices.length > 0 ? (
+              <select
+                className={selectClass}
+                value={values[field.name] ?? ""}
+                onChange={(event) =>
+                  setValues({ ...values, [field.name]: event.target.value })
+                }
+              >
+                {field.choices.map((choice) => (
+                  <option key={choice.value} value={choice.value}>
+                    {choice.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                className={inputClass}
+                value={values[field.name] ?? ""}
+                onChange={(event) =>
+                  setValues({ ...values, [field.name]: event.target.value })
+                }
+              />
+            )}
           </Field>
         ))}
       </div>

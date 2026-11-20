@@ -57,11 +57,15 @@ export const BASE_CONFIG: Dict = {
 /** WHAT: the presets this plane can build. */
 export type PresetId = "reality" | "warp" | "geo_block";
 
+/** WHAT: one option of a field the dialog renders as a select. */
+export type PresetFieldChoice = { value: string; label: string };
+
 /** WHAT: one input a preset dialog collects. */
 export type PresetField = {
   name: string;
   label: string;
   hint: string;
+  choices?: PresetFieldChoice[];
 };
 
 /** WHAT: one preset as the admin UI describes it. */
@@ -145,15 +149,28 @@ export function presetDescriptors(nodeAddress: string): PresetDescriptor[] {
       summary:
         "Registers a free Cloudflare WARP device, switches it to MASQUE " +
         "(CONNECT-IP over HTTP/3) and adds it as a masque outbound. Each " +
-        "build creates a new device.",
+        "build creates a new device; the edge family selects the dial path.",
       fields: [
         {
           name: "tag",
           label: "Outbound tag",
           hint: "Replaces an outbound with the same tag; otherwise appended.",
         },
+        {
+          name: "edge",
+          label: "Edge address family",
+          hint:
+            "Which family the tunnel dials. The interface keeps both assigned " +
+            "addresses, so IPv4 and IPv6 destinations both exit either way. " +
+            "IPv6 falls back to IPv4 only when the registration offers no " +
+            "IPv6 edge; choose IPv4 on a node without working IPv6 egress.",
+          choices: [
+            { value: "ipv6", label: "IPv6" },
+            { value: "ipv4", label: "IPv4" },
+          ],
+        },
       ],
-      defaults: { tag: "warp" },
+      defaults: { tag: "warp", edge: "ipv6" },
     },
     {
       id: "geo_block",
@@ -390,9 +407,18 @@ export async function buildPreset(
     return [mergeFragment(document, { inbounds: [inbound] }), warnings];
   }
   if (id === "warp") {
+    const warnings: string[] = [];
+    const requested = option(options, "edge", "ipv6");
+    if (requested !== "ipv4" && requested !== "ipv6") {
+      warnings.push(`unknown WARP edge '${requested}'; using ipv6`);
+    }
     const registration = await createWarpMasque(fetcher, now);
-    const outbound = warpMasqueOutbound(option(options, "tag", "warp"), registration);
-    return [mergeFragment(document, { outbounds: [outbound] }), []];
+    const outbound = warpMasqueOutbound(
+      option(options, "tag", "warp"),
+      registration,
+      requested === "ipv4" ? "ipv4" : "ipv6",
+    );
+    return [mergeFragment(document, { outbounds: [outbound] }), warnings];
   }
   const [rules, warnings] = geoBlockRules(options);
   const merged = mergeFragment(document, { routing: { rules } });
